@@ -12,9 +12,9 @@ decoder's maximum, for example level 6.0. A 1080p30 encode is level 4.0, which
 the browser can decode. webrtcsink rejects H.265 anyway: it falls back to
 another codec, or rejects the m-line if H.265 is the only codec.
 
-The tier has the same problem. For example, nvh265enc at 1080p25 switches from
-main to high tier above about 12 Mbps, so a fixed offer fails once the bitrate
-goes above that.
+The tier has the same problem: encoders switch from main to high tier as the
+bitrate goes up (nvh265enc at 1080p25 above about 12 Mbps; x265enc too, see
+repro 1b).
 
 ## Repro 1: one pipeline
 
@@ -29,6 +29,22 @@ gst-launch-1.0 videotestsrc num-buffers=120 ! video/x-raw,format=I420,width=1920
 gst-launch-1.0 videotestsrc num-buffers=120 ! video/x-raw,format=I420,width=1920,height=1080 \
   ! x265enc ! h265parse ! rtph265pay ! 'application/x-rtp,level-id=(string)120,tier-flag=(string)0' ! fakesink
 ```
+
+## Repro 1b: tier
+
+x265enc also switches tier with the bitrate (level 4.0 at 1080p30: main tier
+at 8 Mbps, high tier at 30 Mbps). A receiver that offers high tier can decode
+main tier, but the 8 Mbps stream is still rejected:
+
+```sh
+# offer: level 4.0, high tier; stream: main tier at 8 Mbps -> not-negotiated
+gst-launch-1.0 videotestsrc num-buffers=60 pattern=snow ! video/x-raw,format=I420,width=1920,height=1080,framerate=30/1 \
+  ! x265enc bitrate=8000 option-string=level-idc=4 ! h265parse ! rtph265pay \
+  ! 'application/x-rtp,level-id=(string)120,tier-flag=(string)1' ! fakesink
+```
+
+`bitrate=30000` (high tier) works with that offer. With a main-tier offer it's
+the other way round, so with any fixed offer one of the two bitrates fails.
 
 ## Repro 2: whepserversink + curl
 
