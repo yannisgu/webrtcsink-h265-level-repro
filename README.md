@@ -66,3 +66,38 @@ vps/sps/pps` and `not-negotiated` in the discovery pipeline.
 With the fix, the answer is `a=sendonly` and the stream is sent.
 
 Tested with GStreamer 1.28.7.
+
+## Test rig
+
+`rig/` tests a webrtcsink build end to end, with a real WebRTC connection
+and frame counting on the receiving side. Needs Python with GStreamer GI
+bindings and x265enc.
+
+```sh
+# build the plugin from gst-plugins-rs
+cargo build -p gst-plugin-webrtc --features whep
+# run all cases against it ("-" tests the installed plugin)
+rig/matrix.sh path/to/target/debug/libgstrswebrtc.so
+```
+
+- `receiver.py`: WHEP receiver offering H.265 up to a given `level-id` and
+  `tier-flag`, prints the answer and the number of frames received
+- `answerer.sh`: `whepserversink` (webrtcsink answers) + `receiver.py`
+- `offerer.sh`: `whipclientsink` (webrtcsink offers) to `whipserversrc`
+- `matrix.sh`: the cases below
+
+With the fix, webrtcsink sends to receivers that offer the stream's level and
+tier or higher ones, and refuses the others. Results (frames received in
+15 s):
+
+| Stream (1080p30 x265) | Receiver's offer | Expected | 0.15.2 | Fix |
+|---|---|---|---|---|
+| 8 Mbps, level 4.0, main tier | level 6.0, main | sends | ❌ inactive | ✅ 213 |
+| 8 Mbps, level 4.0, main tier | level 4.0, high | sends | ❌ inactive | ✅ 263 |
+| 8 Mbps, level 4.0, main tier | level 4.0, main | sends | ✅ 202 | ✅ 187 |
+| 8 Mbps, level 4.0, main tier | level 3.1, main | refuses | inactive | inactive |
+| 30 Mbps, level 4.0, high tier | level 4.0, high | sends | ✅ 37 | ✅ 50 |
+| 30 Mbps, level 4.0, high tier | level 4.0, main | refuses | inactive | inactive |
+| offerer, 8 Mbps | – | sends | ✅ 209 | ✅ 149 |
+
+Fix: https://gitlab.freedesktop.org/me5/gst-plugins-rs/-/tree/webrtcsink-h265-tier-level
